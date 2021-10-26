@@ -223,7 +223,7 @@ icon: https://atomicassets.io/image/logo256.png#108AEE3530F4EB368A4B0C28800894CF
     - {{this}}
 {{/each}}
 
-For this sale to become active, {{seller}} has to create an AtomicAssets trade offer in which he offers the aforementioned assets to the AtomicMarket account with the memo "sale".
+For this sale to become active, {{seller}} has to create an AtomicAssets trade offer in which he offers the aforementioned assets to the extractor account with the memo "sale".
 
 The assets will be listed for the price of {{listing_price}} which will be settled in {{symbol_to_symbol_code settlement_symbol}}.
 
@@ -257,7 +257,7 @@ icon: https://atomicassets.io/image/logo256.png#108AEE3530F4EB368A4B0C28800894CF
 <div class="description">
 The sale with the ID {{sale_id}} is cancelled.
 
-If the seller of this sale has created an AtomicAssets trade offer, offering the assets for this sale to the AtomicMarket account, this trade offer will be declined.
+If the seller of this sale has created an AtomicAssets trade offer, offering the assets for this sale to the extractor account, this trade offer will be declined.
 </div>
 
 <b>Clauses:</b>
@@ -342,7 +342,7 @@ icon: https://atomicassets.io/image/logo256.png#108AEE3530F4EB368A4B0C28800894CF
     - {{this}}
 {{/each}}
 
-For this auction to become active, {{seller}} has to transfer the aforementioned assets to the AtomicMarket account with the memo "auction".
+For this auction to become active, {{seller}} has to transfer the aforementioned assets to the extractor account with the memo "auction".
 
 The starting bid for this auction will be {{starting_bid}} and the auction will run for a minimum of {{duration}} seconds, starting from the time of announcement.
 
@@ -376,7 +376,7 @@ icon: https://atomicassets.io/image/logo256.png#108AEE3530F4EB368A4B0C28800894CF
 <div class="description">
 The auction with the ID {{auction_id}} is cancelled. The auction must not have any bids yet, otherwise it can't be cancelled.
 
-If the seller of this auction has already transferred the assets for this auction to the AtomicMarket account, the assets are transferred back.
+If the seller of this auction has already transferred the assets for this auction to the extractor account, the assets are transferred back.
 </div>
 
 <b>Clauses:</b>
@@ -574,7 +574,7 @@ If the price of the buyoffer differs from {{expected_price}}, the transaction fa
 {{else}}The default marketplace facilitates this buyoffer acceptance.
 {{/if}}
 
-The recipient needs to have previously created an AtomicAssets trade offer, offerring the assets of the buyoffer to the AtomicMarket account without asking for anything in return.
+The recipient needs to have previously created an AtomicAssets trade offer, offerring the assets of the buyoffer to the extractor account without asking for anything in return.
 
 The AtomicAssets trade offer is accepted and the assets of the buyoffer are forwarded to the sender of the buyoffer.
 

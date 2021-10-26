@@ -27,7 +27,7 @@ checksum256 hash_asset_ids(const vector <uint64_t> &asset_ids) {
 };
 
 
-CONTRACT atomicmarket : public contract {
+CONTRACT extractor : public contract {
 public:
     using contract::contract;
 
@@ -473,7 +473,7 @@ extern "C"
 void apply(uint64_t receiver, uint64_t code, uint64_t action) {
     if (code == receiver) {
         switch (action) {
-            EOSIO_DISPATCH_HELPER(atomicmarket, \
+            EOSIO_DISPATCH_HELPER(extractor, \
             (init)(convcounters)(setminbidinc)(setversion)(addconftoken)(adddelphi)(setmarketfee)(regmarket)(withdraw) \
             (addbonusfee)(addafeectr)(stopbonusfee)(delbonusfee) \
             (announcesale)(cancelsale)(purchasesale)(assertsale) \
@@ -483,12 +483,12 @@ void apply(uint64_t receiver, uint64_t code, uint64_t action) {
             (lognewsale)(lognewauct)(logsalestart)(logauctstart))
         }
     } else if (code == atomicassets::ATOMICASSETS_ACCOUNT.value && action == name("transfer").value) {
-        eosio::execute_action(name(receiver), name(code), &atomicmarket::receive_asset_transfer);
+        eosio::execute_action(name(receiver), name(code), &extractor::receive_asset_transfer);
 
     } else if (code == atomicassets::ATOMICASSETS_ACCOUNT.value && action == name("lognewoffer").value) {
-        eosio::execute_action(name(receiver), name(code), &atomicmarket::receive_asset_offer);
+        eosio::execute_action(name(receiver), name(code), &extractor::receive_asset_offer);
 
     } else if (action == name("transfer").value) {
-        eosio::execute_action(name(receiver), name(code), &atomicmarket::receive_token_transfer);
+        eosio::execute_action(name(receiver), name(code), &extractor::receive_token_transfer);
     }
 }

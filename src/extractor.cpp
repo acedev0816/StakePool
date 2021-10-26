@@ -1,4 +1,4 @@
-#include <atomicmarket.hpp>
+#include <extractor.hpp>
 
 #include <math.h>
 
@@ -8,7 +8,7 @@
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::init() {
+ACTION extractor::init() {
     require_auth(get_self());
     config.get_or_create(get_self(), config_s{});
 
@@ -30,7 +30,7 @@ ACTION atomicmarket::init() {
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::convcounters() {
+ACTION extractor::convcounters() {
     require_auth(get_self());
 
     config_s current_config = config.get();
@@ -59,7 +59,7 @@ ACTION atomicmarket::convcounters() {
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::setminbidinc(double minimum_bid_increase) {
+ACTION extractor::setminbidinc(double minimum_bid_increase) {
     require_auth(get_self());
     check(minimum_bid_increase > 0, "The bid increase must be greater than 0");
 
@@ -74,7 +74,7 @@ ACTION atomicmarket::setminbidinc(double minimum_bid_increase) {
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::setversion(string new_version) {
+ACTION extractor::setversion(string new_version) {
     require_auth(get_self());
 
     config_s current_config = config.get();
@@ -89,7 +89,7 @@ ACTION atomicmarket::setversion(string new_version) {
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::addconftoken(name token_contract, symbol token_symbol) {
+ACTION extractor::addconftoken(name token_contract, symbol token_symbol) {
     require_auth(get_self());
 
     check(!is_symbol_supported(token_symbol),
@@ -112,7 +112,7 @@ ACTION atomicmarket::addconftoken(name token_contract, symbol token_symbol) {
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::adddelphi(
+ACTION extractor::adddelphi(
     name delphi_pair_name,
     bool invert_delphi_pair,
     symbol listing_symbol,
@@ -164,7 +164,7 @@ ACTION atomicmarket::adddelphi(
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::setmarketfee(double maker_market_fee, double taker_market_fee) {
+ACTION extractor::setmarketfee(double maker_market_fee, double taker_market_fee) {
     require_auth(get_self());
 
     check(maker_market_fee >= 0 && taker_market_fee >= 0,
@@ -185,7 +185,7 @@ ACTION atomicmarket::setmarketfee(double maker_market_fee, double taker_market_f
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::addbonusfee(
+ACTION extractor::addbonusfee(
     name fee_recipient,
     double fee,
     vector <name> applicable_counter_names,
@@ -227,7 +227,7 @@ ACTION atomicmarket::addbonusfee(
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::addafeectr(
+ACTION extractor::addafeectr(
     uint64_t bonusfee_id,
     name counter_name_to_add
 ) {
@@ -271,7 +271,7 @@ ACTION atomicmarket::addafeectr(
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::stopbonusfee(
+ACTION extractor::stopbonusfee(
     uint64_t bonusfee_id
 ) {
     require_auth(get_self());
@@ -298,7 +298,7 @@ ACTION atomicmarket::stopbonusfee(
 * 
 * @required_auth The contract itself
 */
-ACTION atomicmarket::delbonusfee(
+ACTION extractor::delbonusfee(
     uint64_t bonusfee_id
 ) {
     require_auth(get_self());
@@ -315,14 +315,14 @@ ACTION atomicmarket::delbonusfee(
 * Registers a marketplace that can then be used in the maker_marketplace / taker_marketplace parameters
 * 
 * This is needed because without the registration process, an attacker could create tiny sales with random accounts
-* as the marketplace, for which the atomicmarket contract would then create balance table rows and pay the RAM for.
+* as the marketplace, for which the extractor contract would then create balance table rows and pay the RAM for.
 * 
 * marketplace names that belong to existing accounts can not be chosen,
 * except if that account authorizes the transaction
 * 
 * @required_auth creator
 */
-ACTION atomicmarket::regmarket(
+ACTION extractor::regmarket(
     name creator,
     name marketplace_name
 ) {
@@ -359,7 +359,7 @@ ACTION atomicmarket::regmarket(
 * 
 * @required_auth owner
 */
-ACTION atomicmarket::withdraw(
+ACTION extractor::withdraw(
     name owner,
     asset token_to_withdraw
 ) {
@@ -367,18 +367,18 @@ ACTION atomicmarket::withdraw(
 
     check(token_to_withdraw.is_valid(), "Invalid type token_to_withdraw");
 
-    internal_withdraw_tokens(owner, token_to_withdraw, "AtomicMarket Withdrawal");
+    internal_withdraw_tokens(owner, token_to_withdraw, "extractor Withdrawal");
 }
 
 
 /**
 * Create a sale listing
-* For the sale to become active, the seller needs to create an atomicassets offer from them to the atomicmarket
+* For the sale to become active, the seller needs to create an atomicassets offer from them to the extractor
 * account, offering (only) the assets to be sold with the memo "sale"
 * 
 * @required_auth seller
 */
-ACTION atomicmarket::announcesale(
+ACTION extractor::announcesale(
     name seller,
     vector <uint64_t> asset_ids,
     asset listing_price,
@@ -467,7 +467,7 @@ ACTION atomicmarket::announcesale(
 * 
 * @required_auth The sale's seller
 */
-ACTION atomicmarket::cancelsale(
+ACTION extractor::cancelsale(
     uint64_t sale_id
 ) {
     auto sale_itr = sales.require_find(sale_id,
@@ -520,7 +520,7 @@ ACTION atomicmarket::cancelsale(
 * 
 * @required_auth buyer
 */
-ACTION atomicmarket::purchasesale(
+ACTION extractor::purchasesale(
     name buyer,
     uint64_t sale_id,
     uint64_t intended_delphi_median,
@@ -603,7 +603,7 @@ ACTION atomicmarket::purchasesale(
         sale_itr->collection_fee,
         name("sale"),
         sale_id,
-        "AtomicMarket Sale Payout - ID #" + to_string(sale_id)
+        "extractor Sale Payout - ID #" + to_string(sale_id)
     );
 
     action(
@@ -618,7 +618,7 @@ ACTION atomicmarket::purchasesale(
     internal_transfer_assets(
         buyer,
         sale_itr->asset_ids,
-        "AtomicMarket Purchased Sale - ID # " + to_string(sale_id)
+        "extractor Purchased Sale - ID # " + to_string(sale_id)
     );
 
     sales.erase(sale_itr);
@@ -634,7 +634,7 @@ ACTION atomicmarket::purchasesale(
 * 
 * @required_auth None
 */
-ACTION atomicmarket::assertsale(
+ACTION extractor::assertsale(
     uint64_t sale_id,
     vector <uint64_t> asset_ids_to_assert,
     asset listing_price_to_assert,
@@ -660,13 +660,13 @@ ACTION atomicmarket::assertsale(
 /**
 * Create an auction listing
 * For the auction to become active, the seller needs to use the atomicassets transfer action to transfer the assets
-* to the atomicmarket contract with the memo "auction"
+* to the extractor contract with the memo "auction"
 * 
 * duration is in seconds
 * 
 * @required_auth seller
 */
-ACTION atomicmarket::announceauct(
+ACTION extractor::announceauct(
     name seller,
     vector <uint64_t> asset_ids,
     asset starting_bid,
@@ -759,7 +759,7 @@ ACTION atomicmarket::announceauct(
 * 
 * @required_auth seller
 */
-ACTION atomicmarket::cancelauct(
+ACTION extractor::cancelauct(
     uint64_t auction_id
 ) {
     auto auction_itr = auctions.require_find(auction_id,
@@ -789,7 +789,7 @@ ACTION atomicmarket::cancelauct(
         internal_transfer_assets(
             auction_itr->seller,
             auction_itr->asset_ids,
-            "AtomicMarket Cancelled Auction - ID # " + to_string(auction_id)
+            "extractor Cancelled Auction - ID # " + to_string(auction_id)
         );
     }
 
@@ -804,7 +804,7 @@ ACTION atomicmarket::cancelauct(
 * 
 * @required_auth bidder
 */
-ACTION atomicmarket::auctionbid(
+ACTION extractor::auctionbid(
     name bidder,
     uint64_t auction_id,
     asset bid,
@@ -820,7 +820,7 @@ ACTION atomicmarket::auctionbid(
     check(bidder != auction_itr->seller, "You can't bid on your own auction");
 
     check(auction_itr->assets_transferred,
-        "The auction is not yet active. The seller first needs to transfer the asset to the atomicmarket account");
+        "The auction is not yet active. The seller first needs to transfer the asset to the extractor account");
 
     check(current_time_point().sec_since_epoch() < auction_itr->end_time,
         "The auction is already finished");
@@ -870,7 +870,7 @@ ACTION atomicmarket::auctionbid(
 * 
 * @required_auth The highest bidder of the auction
 */
-ACTION atomicmarket::auctclaimbuy(
+ACTION extractor::auctclaimbuy(
     uint64_t auction_id
 ) {
     auto auction_itr = auctions.require_find(auction_id,
@@ -892,7 +892,7 @@ ACTION atomicmarket::auctclaimbuy(
     internal_transfer_assets(
         auction_itr->current_bidder,
         auction_itr->asset_ids,
-        "AtomicMarket Won Auction - ID # " + to_string(auction_id)
+        "extractor Won Auction - ID # " + to_string(auction_id)
     );
 
     if (auction_itr->claimed_by_seller) {
@@ -912,7 +912,7 @@ ACTION atomicmarket::auctclaimbuy(
 * 
 * @required_auth The auction's seller
 */
-ACTION atomicmarket::auctclaimsel(
+ACTION extractor::auctclaimsel(
     uint64_t auction_id
 ) {
     auto auction_itr = auctions.require_find(auction_id,
@@ -940,7 +940,7 @@ ACTION atomicmarket::auctclaimsel(
         auction_itr->collection_fee,
         name("auction"),
         auction_id,
-        "AtomicMarket Auction Payout - ID #" + to_string(auction_id)
+        "extractor Auction Payout - ID #" + to_string(auction_id)
     );
 
     if (auction_itr->claimed_by_buyer) {
@@ -962,7 +962,7 @@ ACTION atomicmarket::auctclaimsel(
 * 
 * @required_auth None
 */
-ACTION atomicmarket::assertauct(
+ACTION extractor::assertauct(
     uint64_t auction_id,
     vector <uint64_t> asset_ids_to_assert
 ) {
@@ -981,7 +981,7 @@ ACTION atomicmarket::assertauct(
 * 
 * @required_auth buyer
 */
-ACTION atomicmarket::createbuyo(
+ACTION extractor::createbuyo(
     name buyer,
     name recipient,
     asset price,
@@ -1050,7 +1050,7 @@ ACTION atomicmarket::createbuyo(
 * 
 * @required_auth The buyer of the buyoffer
 */
-ACTION atomicmarket::cancelbuyo(
+ACTION extractor::cancelbuyo(
     uint64_t buyoffer_id
 ) {
     auto buyoffer_itr = buyoffers.require_find(buyoffer_id,
@@ -1067,21 +1067,21 @@ ACTION atomicmarket::cancelbuyo(
 /**
 * Accepts a buyoffer
 * Calling this action expects that the recipient of the buyoffer had created an AtomicAssets
-* trade offer, which offers the assets of the buyoffer to the AtomicMarket contract, while
+* trade offer, which offers the assets of the buyoffer to the extractor contract, while
 * asking for nothing in return and using the memo "buyoffer"
 * 
 * The AtomicAssets offer with the highest offer_id is looked at, which means that the recipient
 * should create the AtomicAssets offer and then call this action within the same transaction to
 * make sure that they are executed directly after one antoher
 * 
-* The AtomicMarket will then accept this trade offer and transfer the assets to the sender of
+* The extractor will then accept this trade offer and transfer the assets to the sender of
 * the buyoffer, and pay out the offered price to the recipient
 * 
 * The price is subject to the same fees as sales or auctions
 * 
 * @required_auth The recipient of the buyoffer
 */
-ACTION atomicmarket::acceptbuyo(
+ACTION extractor::acceptbuyo(
     uint64_t buyoffer_id,
     vector <uint64_t> expected_asset_ids,
     asset expected_price,
@@ -1108,7 +1108,7 @@ ACTION atomicmarket::acceptbuyo(
     auto last_offer_itr = --atomicassets::offers.end();
 
     check(last_offer_itr->sender == buyoffer_itr->recipient && last_offer_itr->recipient == get_self(),
-        "The last created AtomicAssets offer must be from the buyoffer recipient to the AtomicMarket contract");
+        "The last created AtomicAssets offer must be from the buyoffer recipient to the extractor contract");
     
     check(std::is_permutation(
             last_offer_itr->sender_asset_ids.begin(),
@@ -1137,7 +1137,7 @@ ACTION atomicmarket::acceptbuyo(
     internal_transfer_assets(
         buyoffer_itr->buyer,
         buyoffer_itr->asset_ids,
-        "AtomicMarket Accepted Buyoffer - ID # " + to_string(buyoffer_id)
+        "extractor Accepted Buyoffer - ID # " + to_string(buyoffer_id)
     );
 
 
@@ -1152,7 +1152,7 @@ ACTION atomicmarket::acceptbuyo(
         buyoffer_itr->collection_fee,
         name("buyoffer"),
         buyoffer_id,
-        "AtomicMarket Buyoffer Payout - ID #" + to_string(buyoffer_id)
+        "extractor Buyoffer Payout - ID #" + to_string(buyoffer_id)
     );
 
 
@@ -1165,7 +1165,7 @@ ACTION atomicmarket::acceptbuyo(
 * 
 * @required_auth The recipient of the buyoffer
 */
-ACTION atomicmarket::declinebuyo(
+ACTION extractor::declinebuyo(
     uint64_t buyoffer_id,
     string decline_memo
 ) {
@@ -1185,7 +1185,7 @@ ACTION atomicmarket::declinebuyo(
 /**
 * Pays the RAM cost for an already existing sale
 */
-ACTION atomicmarket::paysaleram(
+ACTION extractor::paysaleram(
     name payer,
     uint64_t sale_id
 ) {
@@ -1207,7 +1207,7 @@ ACTION atomicmarket::paysaleram(
 /**
 * Pays the RAM cost for an already existing auction
 */
-ACTION atomicmarket::payauctram(
+ACTION extractor::payauctram(
     name payer,
     uint64_t auction_id
 ) {
@@ -1229,7 +1229,7 @@ ACTION atomicmarket::payauctram(
 /**
 * Pays the RAM cost for an already existing buyoffer
 */
-ACTION atomicmarket::paybuyoram(
+ACTION extractor::paybuyoram(
     name payer,
     uint64_t buyoffer_id
 ) {
@@ -1249,10 +1249,10 @@ ACTION atomicmarket::paybuyoram(
 
 
 /**
-* This function is called when a transfer receipt from any token contract is sent to the atomicmarket contract
+* This function is called when a transfer receipt from any token contract is sent to the extractor contract
 * It handels deposits and adds the transferred tokens to the sender's balance table row
 */
-void atomicmarket::receive_token_transfer(name from, name to, asset quantity, string memo) {
+void extractor::receive_token_transfer(name from, name to, asset quantity, string memo) {
     if (to != get_self()) {
         return;
     }
@@ -1268,10 +1268,10 @@ void atomicmarket::receive_token_transfer(name from, name to, asset quantity, st
 
 
 /**
-* This function is called when a "transfer" action receipt from the atomicassets contract is sent to the atomicmarket
+* This function is called when a "transfer" action receipt from the atomicassets contract is sent to the extractor
 * contract. It handles receiving assets for auctions.
 */
-void atomicmarket::receive_asset_transfer(
+void extractor::receive_asset_transfer(
     name from,
     name to,
     vector <uint64_t> asset_ids,
@@ -1321,9 +1321,9 @@ void atomicmarket::receive_asset_transfer(
 
 /**
 * This function is called when a "lognewoffer" action receipt from the atomicassets contract is sent to the 
-* atomicmarket contract. It handles receiving offers for sales.
+* extractor contract. It handles receiving offers for sales.
 */
-void atomicmarket::receive_asset_offer(
+void extractor::receive_asset_offer(
     uint64_t offer_id,
     name sender,
     name recipient,
@@ -1382,7 +1382,7 @@ void atomicmarket::receive_asset_offer(
 }
 
 
-ACTION atomicmarket::lognewsale(
+ACTION extractor::lognewsale(
     uint64_t sale_id,
     name seller,
     vector <uint64_t> asset_ids,
@@ -1397,7 +1397,7 @@ ACTION atomicmarket::lognewsale(
     require_recipient(seller);
 }
 
-ACTION atomicmarket::lognewauct(
+ACTION extractor::lognewauct(
     uint64_t auction_id,
     name seller,
     vector <uint64_t> asset_ids,
@@ -1413,7 +1413,7 @@ ACTION atomicmarket::lognewauct(
     require_recipient(seller);
 }
 
-ACTION atomicmarket::lognewbuyo(
+ACTION extractor::lognewbuyo(
     uint64_t buyoffer_id,
     name buyer,
     name recipient,
@@ -1427,21 +1427,21 @@ ACTION atomicmarket::lognewbuyo(
     require_auth(get_self());
 }
 
-ACTION atomicmarket::logsalestart(
+ACTION extractor::logsalestart(
     uint64_t sale_id,
     uint64_t offer_id
 ) {
     require_auth(get_self());
 }
 
-ACTION atomicmarket::logauctstart(
+ACTION extractor::logauctstart(
     uint64_t auction_id
 ) {
     require_auth(get_self());
 }
 
 
-name atomicmarket::get_collection_and_check_assets(
+name extractor::get_collection_and_check_assets(
     name owner,
     vector <uint64_t> asset_ids
 ) {
@@ -1483,7 +1483,7 @@ name atomicmarket::get_collection_and_check_assets(
 /**
 * Gets the author of a collection in the atomicassets contract
 */
-name atomicmarket::get_collection_author(name collection_name) {
+name extractor::get_collection_author(name collection_name) {
     auto collection_itr = atomicassets::collections.find(collection_name.value);
     return collection_itr->author;
 }
@@ -1492,7 +1492,7 @@ name atomicmarket::get_collection_author(name collection_name) {
 /**
 * Gets the fee defined by a collection in the atomicassets contract
 */
-double atomicmarket::get_collection_fee(name collection_name) {
+double extractor::get_collection_fee(name collection_name) {
     auto collection_itr = atomicassets::collections.find(collection_name.value);
     return collection_itr->market_fee;
 }
@@ -1502,7 +1502,7 @@ double atomicmarket::get_collection_fee(name collection_name) {
 * Gets the current value of a counter and increments the counter by 1
 * If no counter with the specified name exists yet, it is treated as if the counter was 1
 */
-uint64_t atomicmarket::consume_counter(name counter_name) {
+uint64_t extractor::consume_counter(name counter_name) {
     uint64_t value;
 
     auto counter_itr = counters.find(counter_name.value);
@@ -1527,7 +1527,7 @@ uint64_t atomicmarket::consume_counter(name counter_name) {
 * Gets the token_contract corresponding to the token_symbol from the config
 * Throws if there is no supported token with the specified token_symbol
 */
-name atomicmarket::require_get_supported_token_contract(
+name extractor::require_get_supported_token_contract(
     symbol token_symbol
 ) {
     config_s current_config = config.get();
@@ -1547,7 +1547,7 @@ name atomicmarket::require_get_supported_token_contract(
 * Gets the symbol pair with the provided listing and settlement symbol combination
 * Throws if there is no symbol pair with the provided listing and settlement symbol combination
 */
-atomicmarket::SYMBOLPAIR atomicmarket::require_get_symbol_pair(
+extractor::SYMBOLPAIR extractor::require_get_symbol_pair(
     symbol listing_symbol,
     symbol settlement_symbol
 ) {
@@ -1567,7 +1567,7 @@ atomicmarket::SYMBOLPAIR atomicmarket::require_get_symbol_pair(
 /**
 * Internal function to check whether an token is a supported token
 */
-bool atomicmarket::is_token_supported(
+bool extractor::is_token_supported(
     name token_contract,
     symbol token_symbol
 ) {
@@ -1585,7 +1585,7 @@ bool atomicmarket::is_token_supported(
 /**
 * Internal function to check whether a supported token with this symbol exists
 */
-bool atomicmarket::is_symbol_supported(
+bool extractor::is_symbol_supported(
     symbol token_symbol
 ) {
     config_s current_config = config.get();
@@ -1602,7 +1602,7 @@ bool atomicmarket::is_symbol_supported(
 /**
 * Internal function to check whether a symbol pair with the specified listing and settlement symbols exists
 */
-bool atomicmarket::is_symbol_pair_supported(
+bool extractor::is_symbol_pair_supported(
     symbol listing_symbol,
     symbol settlement_symbol
 ) {
@@ -1621,7 +1621,7 @@ bool atomicmarket::is_symbol_pair_supported(
 * Checks if the provided marketplace is a valid marketplace
 * A marketplace is valid if is in the marketplaces table
 */
-bool atomicmarket::is_valid_marketplace(name marketplace) {
+bool extractor::is_valid_marketplace(name marketplace) {
     return (marketplaces.find(marketplace.value) != marketplaces.end());
 }
 
@@ -1630,7 +1630,7 @@ bool atomicmarket::is_valid_marketplace(name marketplace) {
 * Decreases the withdrawers balance by the specified quantity and transfers the tokens to them
 * Throws if the withdrawer does not have a sufficient balance
 */
-void atomicmarket::internal_withdraw_tokens(
+void extractor::internal_withdraw_tokens(
     name withdrawer,
     asset quantity,
     string memo
@@ -1659,7 +1659,7 @@ void atomicmarket::internal_withdraw_tokens(
 /**
 * Gives the seller, the marketplaces and the collection their share of the sale price
 */
-void atomicmarket::internal_payout_sale(
+void extractor::internal_payout_sale(
     asset quantity,
     name seller,
     name maker_marketplace,
@@ -1754,7 +1754,7 @@ void atomicmarket::internal_payout_sale(
 * Internal function used to add a quantity of a token to an account's balance
 * It is not checked whether the added token is a supported token, this has to be checked before calling this function
 */
-void atomicmarket::internal_add_balance(
+void extractor::internal_add_balance(
     name owner,
     asset quantity
 ) {
@@ -1805,7 +1805,7 @@ void atomicmarket::internal_add_balance(
 * If the account does not has less than that quantity in his balance, this function will cause the
 * transaction to fail
 */
-void atomicmarket::internal_decrease_balance(
+void extractor::internal_decrease_balance(
     name owner,
     asset quantity
 ) {
@@ -1840,7 +1840,7 @@ void atomicmarket::internal_decrease_balance(
 }
 
 
-void atomicmarket::internal_transfer_assets(
+void extractor::internal_transfer_assets(
     name to,
     vector <uint64_t> asset_ids,
     string memo
