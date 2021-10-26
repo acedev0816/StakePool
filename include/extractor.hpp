@@ -30,60 +30,18 @@ checksum256 hash_asset_ids(const vector <uint64_t> &asset_ids) {
 CONTRACT extractor : public contract {
 public:
     using contract::contract;
-
+    //utility
     ACTION init();
-
     ACTION convcounters();
 
-    ACTION setminbidinc(
-        double minimum_bid_increase
-    );
-
+    //set version
     ACTION setversion(
         string new_version
     );
 
-    ACTION addconftoken(
-        name token_contract,
-        symbol token_symbol
-    );
-
-    ACTION adddelphi(
-        name delphi_pair_name,
-        bool invert_delphi_pair,
-        symbol listing_symbol,
-        symbol settlement_symbol
-    );
-
-    ACTION setmarketfee(
-        double maker_market_fee,
-        double taker_market_fee
-    );
-
-    ACTION addbonusfee(
-        name fee_recipient,
-        double fee,
-        vector <name> applicable_counter_names,
-        string fee_name
-    );
-
-    ACTION addafeectr(
-        uint64_t bonusfee_id,
-        name counter_name_to_add
-    );
-
-    ACTION stopbonusfee(
-        uint64_t bonusfee_id
-    );
-
-    ACTION delbonusfee(
-        uint64_t bonusfee_id
-    );
-
-
-    ACTION regmarket(
-        name creator,
-        name marketplace_name
+    // set address of apoc token
+    ACTION setapocaddr(
+        name token_contract
     );
 
 
@@ -396,7 +354,9 @@ private:
         uint32_t            minimum_auction_duration = 120; //2 minutes
         uint32_t            maximum_auction_duration = 2592000; //30 days
         uint32_t            auction_reset_duration   = 120; //2 minutes
-        vector <TOKEN>      supported_tokens         = {};
+        TOKEN               apoc_token               = {
+            .token_symbol = symbol("APOC"),
+            .token_contract = name("apocalyptics")};
         vector <SYMBOLPAIR> supported_symbol_pairs   = {};
         double              maker_market_fee         = 0.01;
         double              taker_market_fee         = 0.01;
