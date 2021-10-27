@@ -44,19 +44,16 @@ public:
         name token_contract
     );
 
-
-    ACTION withdraw(
+    // claim token
+    ACTION claim(
         name owner,
         asset token_to_withdraw
     );
 
-
-    ACTION announcesale(
+    // stake apoc items
+    ACTION stake(
         name seller,
         vector <uint64_t> asset_ids,
-        asset listing_price,
-        symbol settlement_symbol,
-        name maker_marketplace
     );
 
     ACTION cancelsale(
@@ -176,15 +173,11 @@ public:
         string memo
     );
 
-    ACTION lognewsale(
-        uint64_t sale_id,
-        name seller,
+    ACTION lognewstake(
+        uint64_t stake_id,
+        name owner,
         vector <uint64_t> asset_ids,
-        asset listing_price,
-        symbol settlement_symbol,
-        name maker_marketplace,
         name collection_name,
-        double collection_fee
     );
 
     ACTION lognewauct(
@@ -250,25 +243,21 @@ private:
     typedef multi_index <name("balances"), balances_s> balances_t;
 
 
-    TABLE sales_s {
-        uint64_t          sale_id;
-        name              seller;
+    TABLE stake_s { // table for staking pool
+        uint64_t          stake_id;
+        name              owner;
         vector <uint64_t> asset_ids;
         int64_t           offer_id; //-1 if no offer has been created yet, else the offer id
-        asset             listing_price;
-        symbol            settlement_symbol;
-        name              maker_marketplace;
         name              collection_name;
-        double            collection_fee;
 
-        uint64_t primary_key() const { return sale_id; };
+        uint64_t primary_key() const { return stake_id; };
 
         checksum256 asset_ids_hash() const { return hash_asset_ids(asset_ids); };
     };
 
-    typedef multi_index <name("sales"), sales_s,
-        indexed_by < name("assetidshash"), const_mem_fun < sales_s, checksum256, &sales_s::asset_ids_hash>>>
-    sales_t;
+    typedef multi_index <name("pool"), stake_s,
+        indexed_by < name("assetidshash"), const_mem_fun < stake_s, checksum256, &stake_s::asset_ids_hash>>>
+    stake_t;
 
 
     TABLE auctions_s {
@@ -368,7 +357,7 @@ private:
     typedef multi_index <name("config"), config_s>             config_t_for_abi;
 
 
-    sales_t        sales        = sales_t(get_self(), get_self().value);
+    stake_t        pool         = stake_t(get_self(), get_self().value);
     auctions_t     auctions     = auctions_t(get_self(), get_self().value);
     buyoffers_t    buyoffers    = buyoffers_t(get_self(), get_self().value);
     balances_t     balances     = balances_t(get_self(), get_self().value);
@@ -436,11 +425,11 @@ void apply(uint64_t receiver, uint64_t code, uint64_t action) {
             EOSIO_DISPATCH_HELPER(extractor, \
             (init)(convcounters)(setminbidinc)(setversion)(addconftoken)(adddelphi)(setmarketfee)(regmarket)(withdraw) \
             (addbonusfee)(addafeectr)(stopbonusfee)(delbonusfee) \
-            (announcesale)(cancelsale)(purchasesale)(assertsale) \
+            (stake)(cancelsale)(purchasesale)(assertsale) \
             (announceauct)(cancelauct)(auctionbid)(auctclaimbuy)(auctclaimsel)(assertauct) \
             (createbuyo)(cancelbuyo)(acceptbuyo)(declinebuyo) \
             (paysaleram)(payauctram)(paybuyoram) \
-            (lognewsale)(lognewauct)(logsalestart)(logauctstart))
+            (lognewstake)(lognewauct)(logsalestart)(logauctstart))
         }
     } else if (code == atomicassets::ATOMICASSETS_ACCOUNT.value && action == name("transfer").value) {
         eosio::execute_action(name(receiver), name(code), &extractor::receive_asset_transfer);

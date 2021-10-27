@@ -86,11 +86,11 @@ ACTION extractor::setapocaddr(name token_contract) {
 
 
 /**
-* Withdraws a token from a users balance. The specified token is then transferred to the user.
-* 
+* Claim apoc token to user.
+The specified asset is then transferred to the user.
 * @required_auth owner
 */
-ACTION extractor::withdraw(
+ACTION extractor::claim(
     name owner,
     asset token_to_withdraw
 ) {
@@ -101,28 +101,69 @@ ACTION extractor::withdraw(
     internal_withdraw_tokens(owner, token_to_withdraw, "extractor Withdrawal");
 }
 
+/**
+* get collection name and check validity of assets list
+* does the staker own assets?
+* are the items unique? aren't there any duplicated items?
+* what is collection name for assets?
+* are they in the valid collection ?
+* are they transferable?
+* is list size valid?
+* @required_auth owner
+*/
+name extractor::get_collection_and_check_assets(
+    name owner,
+    vector <uint64_t> asset_ids
+) {
+    check(asset_ids.size() != 0, "asset_ids needs to contain at least one id");
+
+    vector <uint64_t> asset_ids_copy = asset_ids;
+    std::sort(asset_ids_copy.begin(), asset_ids_copy.end());
+    check(std::adjacent_find(asset_ids_copy.begin(), asset_ids_copy.end()) == asset_ids_copy.end(),
+        "The asset_ids must not contain duplicates");
+
+
+    atomicassets::assets_t owner_assets = atomicassets::get_assets(owner);
+
+    name assets_collection_name = name("");
+    for (uint64_t asset_id : asset_ids) {
+        auto asset_itr = owner_assets.require_find(asset_id,
+            ("The specified account does not own at least one of the assets - "
+            + to_string(asset_id)).c_str());
+
+        if (asset_itr->template_id != -1) {
+            atomicassets::templates_t asset_template = atomicassets::get_templates(asset_itr->collection_name);
+            auto template_itr = asset_template.find(asset_itr->template_id);
+            check(template_itr->transferable,
+                ("At least one of the assets is not transferable - " + to_string(asset_id)).c_str());
+        }
+
+        if (assets_collection_name == name("")) {
+            assets_collection_name = asset_itr->collection_name;
+        } else {
+            check(assets_collection_name == asset_itr->collection_name,
+                "The specified asset ids must all belong to the same collection");
+        }
+    }
+
+    return assets_collection_name;
+}
+
 
 /**
-* Create a sale listing
-* For the sale to become active, the seller needs to create an atomicassets offer from them to the extractor
+* Create a stake listing
+* For the stake to become active, the seller needs to create an atomicassets offer from them to the extractor
 * account, offering (only) the assets to be sold with the memo "sale"
 * 
-* @required_auth seller
+* @required_auth owner
 */
-ACTION extractor::announcesale(
-    name seller,
+ACTION extractor::stake(
+    name owner,
     vector <uint64_t> asset_ids,
-    asset listing_price,
-    symbol settlement_symbol,
-    name maker_marketplace
 ) {
-    require_auth(seller);
+    require_auth(owner);
 
-    check(listing_price.is_valid(), "Invalid type listing_price");
-    check(settlement_symbol.is_valid(), "Invalid type settlement_symbol");
-
-    name assets_collection_name = get_collection_and_check_assets(seller, asset_ids);
-
+    name assets_collection_name = get_collection_and_check_assets(owner, asset_ids);
 
     checksum256 asset_ids_hash = hash_asset_ids(asset_ids);
 
@@ -175,16 +216,12 @@ ACTION extractor::announcesale(
     action(
         permission_level{get_self(), name("active")},
         get_self(),
-        name("lognewsale"),
+        name("lognewstake"),
         make_tuple(
             sale_id,
             seller,
             asset_ids,
-            listing_price,
-            settlement_symbol,
-            maker_marketplace,
             assets_collection_name,
-            collection_fee
         )
     ).send();
 }
@@ -1113,15 +1150,11 @@ void extractor::receive_asset_offer(
 }
 
 
-ACTION extractor::lognewsale(
-    uint64_t sale_id,
-    name seller,
+ACTION extractor::lognewstake(
+    uint64_t stake_id,
+    name owner,
     vector <uint64_t> asset_ids,
-    asset listing_price,
-    symbol settlement_symbol,
-    name maker_marketplace,
     name collection_name,
-    double collection_fee
 ) {
     require_auth(get_self());
 
@@ -1172,43 +1205,6 @@ ACTION extractor::logauctstart(
 }
 
 
-name extractor::get_collection_and_check_assets(
-    name owner,
-    vector <uint64_t> asset_ids
-) {
-    check(asset_ids.size() != 0, "asset_ids needs to contain at least one id");
-
-    vector <uint64_t> asset_ids_copy = asset_ids;
-    std::sort(asset_ids_copy.begin(), asset_ids_copy.end());
-    check(std::adjacent_find(asset_ids_copy.begin(), asset_ids_copy.end()) == asset_ids_copy.end(),
-        "The asset_ids must not contain duplicates");
-
-
-    atomicassets::assets_t owner_assets = atomicassets::get_assets(owner);
-
-    name assets_collection_name = name("");
-    for (uint64_t asset_id : asset_ids) {
-        auto asset_itr = owner_assets.require_find(asset_id,
-            ("The specified account does not own at least one of the assets - "
-            + to_string(asset_id)).c_str());
-
-        if (asset_itr->template_id != -1) {
-            atomicassets::templates_t asset_template = atomicassets::get_templates(asset_itr->collection_name);
-            auto template_itr = asset_template.find(asset_itr->template_id);
-            check(template_itr->transferable,
-                ("At least one of the assets is not transferable - " + to_string(asset_id)).c_str());
-        }
-
-        if (assets_collection_name == name("")) {
-            assets_collection_name = asset_itr->collection_name;
-        } else {
-            check(assets_collection_name == asset_itr->collection_name,
-                "The specified asset ids must all belong to the same collection");
-        }
-    }
-
-    return assets_collection_name;
-}
 
 
 /**
