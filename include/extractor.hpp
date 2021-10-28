@@ -50,6 +50,9 @@ public:
         asset token_to_withdraw
     );
 
+    //consume counter : unique
+    uint64_t consume_counter(name counter_name);
+
     // stake apoc items
     ACTION stake(
         name seller,
@@ -255,7 +258,7 @@ private:
         checksum256 asset_ids_hash() const { return hash_asset_ids(asset_ids); };
     };
 
-    typedef multi_index <name("pool"), stake_s,
+    typedef multi_index <name("stakes"), stake_s,
         indexed_by < name("assetidshash"), const_mem_fun < stake_s, checksum256, &stake_s::asset_ids_hash>>>
     stake_t;
 
@@ -374,7 +377,6 @@ private:
     double get_collection_fee(name collection_name);
 
 
-    uint64_t consume_counter(name counter_name);
 
 
     name require_get_supported_token_contract(symbol token_symbol);

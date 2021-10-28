@@ -151,6 +151,29 @@ name extractor::get_collection_and_check_assets(
 
 
 /**
+* Gets the current value of a counter and increments the counter by 1
+* If no counter with the specified name exists yet, it is treated as if the counter was 1
+*/
+uint64_t extractor::consume_counter(name counter_name) {
+    uint64_t value;
+    auto counter_itr = counters.find(counter_name.value);
+    if (counter_itr == counters.end()) {
+        value = 1; // Starting with 1 instead of 0 because these ids can be front facing
+        counters.emplace(get_self(), [&](auto &_counter) {
+            _counter.counter_name = counter_name;
+            _counter.counter_value = 2;
+        });
+    } else {
+        value = counter_itr->counter_value;
+        counters.modify(counter_itr, get_self(), [&](auto &_counter) {
+            _counter.counter_value++;
+        });
+    }
+    return value;
+}
+
+
+/**
 * Create a stake listing
 * For the stake to become active, the seller needs to create an atomicassets offer from them to the extractor
 * account, offering (only) the assets to be sold with the memo "sale"
@@ -167,49 +190,25 @@ ACTION extractor::stake(
 
     checksum256 asset_ids_hash = hash_asset_ids(asset_ids);
 
-    auto sales_by_hash = sales.get_index <name("assetidshash")>();
-    auto sale_itr = sales_by_hash.find(asset_ids_hash);
+    auto stakes_by_hash = pool.get_index <name("assetidshash")>();
+    auto stake_itr = stakes_by_hash.find(asset_ids_hash);
 
-    while (sale_itr != sales_by_hash.end()) {
-        if (asset_ids_hash != sale_itr->asset_ids_hash()) {
+    while (stake_itr != stakes_by_hash.end()) {
+        if (asset_ids_hash != stake_itr->asset_ids_hash()) {
             break;
         }
 
-        check(sale_itr->seller != seller,
-            "You have already announced a sale for these assets. You can cancel a sale using the cancelsale action.");
+        check(stake_itr->owner != owner,
+            "You have already staked these assets. You can cancel the stake using the cancelstake action.");
 
-        sale_itr++;
+        stake_itr++;
     }
-
-
-    if (listing_price.symbol == settlement_symbol) {
-        check(is_symbol_supported(listing_price.symbol), "The specified listing symbol is not supported.");
-    } else {
-        check(is_symbol_pair_supported(listing_price.symbol, settlement_symbol),
-            "The specified listing - settlement symbol combination is not supported");
-    }
-
-
-    check(listing_price.amount > 0, "The sale price must be greater than zero");
-
-    check(is_valid_marketplace(maker_marketplace), "The maker marketplace is not a valid marketplace");
-
-    double collection_fee = get_collection_fee(assets_collection_name);
-    check(collection_fee <= atomicassets::MAX_MARKET_FEE,
-        "The collection fee is too high. This should have been prevented by the atomicassets contract");
-
-    uint64_t sale_id = consume_counter(name("sale"));
-
-    sales.emplace(seller, [&](auto &_sale) {
-        _sale.sale_id = sale_id;
-        _sale.seller = seller;
+    uint64_t stake_id = consume_counter(name("stake"));
+    sales.emplace(owner, [&](auto &_sale) {
+        _sale.stake_id = stake_id;
+        _sale.owner = owner;
         _sale.asset_ids = asset_ids;
-        _sale.offer_id = -1;
-        _sale.listing_price = listing_price;
-        _sale.settlement_symbol = settlement_symbol;
-        _sale.maker_marketplace = maker_marketplace;
         _sale.collection_name = assets_collection_name;
-        _sale.collection_fee = collection_fee;
     });
 
 
@@ -218,8 +217,8 @@ ACTION extractor::stake(
         get_self(),
         name("lognewstake"),
         make_tuple(
-            sale_id,
-            seller,
+            stake_id,
+            owner,
             asset_ids,
             assets_collection_name,
         )
@@ -1225,29 +1224,7 @@ double extractor::get_collection_fee(name collection_name) {
 }
 
 
-/**
-* Gets the current value of a counter and increments the counter by 1
-* If no counter with the specified name exists yet, it is treated as if the counter was 1
-*/
-uint64_t extractor::consume_counter(name counter_name) {
-    uint64_t value;
 
-    auto counter_itr = counters.find(counter_name.value);
-    if (counter_itr == counters.end()) {
-        value = 1; // Starting with 1 instead of 0 because these ids can be front facing
-        counters.emplace(get_self(), [&](auto &_counter) {
-            _counter.counter_name = counter_name;
-            _counter.counter_value = 2;
-        });
-    } else {
-        value = counter_itr->counter_value;
-        counters.modify(counter_itr, get_self(), [&](auto &_counter) {
-            _counter.counter_value++;
-        });
-    }
-    
-    return value;
-}
 
 
 /**
