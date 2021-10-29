@@ -229,53 +229,29 @@ ACTION extractor::stake(
 /**
 * Cancels a sale. The sale can both be active or inactive
 * 
-* If the sale is invalid (offer for the sale was cancelled or the seller does not own at least one
-* of the assets on sale, this action can be called without the authorization of the seller
+* If the sale is invalid (the stake still owns at least one
+* of the assets on stake items, error
 * 
-* @required_auth The sale's seller
+* @required_auth The stake's owner
 */
-ACTION extractor::cancelsale(
-    uint64_t sale_id
+ACTION extractor::unstake(
+    uint64_t stake_id
 ) {
-    auto sale_itr = sales.require_find(sale_id,
-        "No sale with this sale_id exists");
+    auto stake_itr = pool.require_find(stake_id,
+        "No stake with this sale_id exists");
 
+    bool is_stake_invalid = false;
 
-    bool is_sale_invalid = false;
-
-    if (sale_itr->offer_id != -1) {
-        if (atomicassets::offers.find(sale_itr->offer_id) == atomicassets::offers.end()) {
-            is_sale_invalid = true;
-        }
-    }
-
-    atomicassets::assets_t seller_assets = atomicassets::get_assets(sale_itr->seller);
-    for (uint64_t asset_id : sale_itr->asset_ids) {
-        if (seller_assets.find(asset_id) == seller_assets.end()) {
-            is_sale_invalid = true;
+    atomicassets::assets_t staker_assets = atomicassets::get_assets(stake_itr->owner);
+    for (uint64_t asset_id : stake_itr->asset_ids) {
+        if (staker_assets.find(asset_id) != staker_assets.end()) {
+            is_stake_invalid = true;
             break;
         }
     }
-
-    check(is_sale_invalid || has_auth(sale_itr->seller),
-        "The sale is not invalid, therefore the authorization of the seller is needed to cancel it");
-
-
-    if (sale_itr->offer_id != -1) {
-        if (atomicassets::offers.find(sale_itr->offer_id) != atomicassets::offers.end()) {
-            //Cancels the atomicassets offer for this sale for convenience
-            action(
-                permission_level{get_self(), name("active")},
-                atomicassets::ATOMICASSETS_ACCOUNT,
-                name("declineoffer"),
-                make_tuple(
-                    sale_itr->offer_id
-                )
-            ).send();
-        }
-    }
-
-    sales.erase(sale_itr);
+    check(is_stake_invalid ,
+        "The stake is not invalid, therefore the authorization of the staker is needed to cancel it");
+    sales.erase(stake_itr);
 }
 
 

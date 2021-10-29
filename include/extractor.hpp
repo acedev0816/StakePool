@@ -59,8 +59,9 @@ public:
         vector <uint64_t> asset_ids,
     );
 
-    ACTION cancelsale(
-        uint64_t sale_id
+    // unstake apoc token
+    ACTION unstake(
+        uint64_t stake_id
     );
 
     ACTION purchasesale(
