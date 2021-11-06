@@ -22,7 +22,7 @@ ACTION extractor::init() {
 
 
 /**
-* Converts the now deprecated sale and auction counters in the config singleton
+* Converts the now deprecated stake and auction counters in the config singleton
 * into using the counters table
 * 
 * Calling this only is necessary when upgrading the contract from a lower version to 1.2.0
@@ -35,14 +35,14 @@ ACTION extractor::convcounters() {
 
     config_s current_config = config.get();
 
-    check(current_config.sale_counter != 0 && current_config.auction_counter != 0,
-        "The sale or auction counters have already been converted");
+    check(current_config.stake_counter != 0 && current_config.auction_counter != 0,
+        "The stake counters have already been converted");
 
     counters.emplace(get_self(), [&](auto &_counter) {
-        _counter.counter_name = name("sale");
-        _counter.counter_value = current_config.sale_counter;
+        _counter.counter_name = name("stake");
+        _counter.counter_value = current_config.stake_counter;
     });
-    current_config.sale_counter = 0;
+    current_config.stake_counter = 0;
 
     counters.emplace(get_self(), [&](auto &_counter) {
         _counter.counter_name = name("auction");
@@ -176,7 +176,7 @@ uint64_t extractor::consume_counter(name counter_name) {
 /**
 * Create a stake listing
 * For the stake to become active, the seller needs to create an atomicassets offer from them to the extractor
-* account, offering (only) the assets to be sold with the memo "sale"
+* account, offering (only) the assets to be sold with the memo "stake"
 * 
 * @required_auth owner
 */
@@ -204,11 +204,11 @@ ACTION extractor::stake(
         stake_itr++;
     }
     uint64_t stake_id = consume_counter(name("stake"));
-    sales.emplace(owner, [&](auto &_sale) {
-        _sale.stake_id = stake_id;
-        _sale.owner = owner;
-        _sale.asset_ids = asset_ids;
-        _sale.collection_name = assets_collection_name;
+    pool.emplace(owner, [&](auto &_stake) {
+        _stake.stake_id = stake_id;
+        _stake.owner = owner;
+        _stake.asset_ids = asset_ids;
+        _stake.collection_name = assets_collection_name;
     });
 
 
@@ -227,9 +227,9 @@ ACTION extractor::stake(
 
 
 /**
-* Cancels a sale. The sale can both be active or inactive
+* Cancels a stake. 
 * 
-* If the sale is invalid (the stake still owns at least one
+* If the stake is invalid (the stake still owns at least one
 * of the assets on stake items, error
 * 
 * @required_auth The stake's owner
@@ -238,7 +238,7 @@ ACTION extractor::unstake(
     uint64_t stake_id
 ) {
     auto stake_itr = pool.require_find(stake_id,
-        "No stake with this sale_id exists");
+        "No stake with this stake_id exists");
 
     bool is_stake_invalid = false;
 
@@ -251,744 +251,9 @@ ACTION extractor::unstake(
     }
     check(is_stake_invalid ,
         "The stake is not invalid, therefore the authorization of the staker is needed to cancel it");
-    sales.erase(stake_itr);
+    pool.erase(stake_itr);
 }
 
-
-/**
-* Purchases an asset that is for sale.
-* The sale price is deducted from the buyer's balance and added to the seller's balance
-* 
-* intended_delphi_median is only relevant if the sale uses a delphi pairing. Otherwise it is not checked.
-* 
-* @required_auth buyer
-*/
-ACTION extractor::purchasesale(
-    name buyer,
-    uint64_t sale_id,
-    uint64_t intended_delphi_median,
-    name taker_marketplace
-) {
-    require_auth(buyer);
-
-    auto sale_itr = sales.require_find(sale_id,
-        "No sale with this sale_id exists");
-
-    check(buyer != sale_itr->seller, "You can't purchase your own sale");
-
-    check(sale_itr->offer_id != -1,
-        "This sale is not active yet. The seller first has to create an atomicasset offer for this asset");
-
-    check(atomicassets::offers.find(sale_itr->offer_id) != atomicassets::offers.end(),
-        "The seller cancelled the atomicassets offer related to this sale");
-
-    check(is_valid_marketplace(taker_marketplace), "The taker marketplace is not a valid marketplace");
-
-
-    asset sale_price;
-
-    if (sale_itr->listing_price.symbol == sale_itr->settlement_symbol) {
-        check(intended_delphi_median == 0, "intended delphi median needs to be 0 for non delphi sales");
-        sale_price = sale_itr->listing_price;
-
-    } else {
-        SYMBOLPAIR symbol_pair = require_get_symbol_pair(sale_itr->listing_price.symbol, sale_itr->settlement_symbol);
-
-        delphioracle::datapoints_t datapoints = delphioracle::get_datapoints(symbol_pair.delphi_pair_name);
-
-        bool found_point_with_median = false;
-        for (auto itr = datapoints.begin(); itr != datapoints.end(); itr++) {
-            if (itr->median == intended_delphi_median) {
-                found_point_with_median = true;
-                break;
-            }
-        }
-        check(found_point_with_median,
-            "No datapoint with the intended median was found. You likely took too long to confirm your transaction");
-
-
-        //Using the price denoted in the listing symbol and the median price provided by the delphioracle,
-        //the final price in the settlement token is calculated
-        auto pair_itr = delphioracle::pairs.find(symbol_pair.delphi_pair_name.value);
-
-        uint64_t settlement_price_amount;
-
-        if (!symbol_pair.invert_delphi_pair) {
-            //Normal
-            settlement_price_amount = (double) sale_itr->listing_price.amount / (double) intended_delphi_median * pow(
-                10, pair_itr->quoted_precision + sale_itr->settlement_symbol.precision() -
-                    sale_itr->listing_price.symbol.precision()
-            );
-        } else {
-            //Inverted
-            settlement_price_amount = (double) sale_itr->listing_price.amount * (double) intended_delphi_median * pow(
-                10, -pair_itr->quoted_precision + sale_itr->settlement_symbol.precision() -
-                    sale_itr->listing_price.symbol.precision()
-            );
-        }
-
-        sale_price = asset(settlement_price_amount, sale_itr->settlement_symbol);
-
-    }
-
-
-    internal_decrease_balance(
-        buyer,
-        sale_price
-    );
-
-    internal_payout_sale(
-        sale_price,
-        sale_itr->seller,
-        sale_itr->maker_marketplace,
-        taker_marketplace,
-        get_collection_author(sale_itr->collection_name),
-        sale_itr->collection_fee,
-        name("sale"),
-        sale_id,
-        "extractor Sale Payout - ID #" + to_string(sale_id)
-    );
-
-    action(
-        permission_level{get_self(), name("active")},
-        atomicassets::ATOMICASSETS_ACCOUNT,
-        name("acceptoffer"),
-        make_tuple(
-            sale_itr->offer_id
-        )
-    ).send();
-
-    internal_transfer_assets(
-        buyer,
-        sale_itr->asset_ids,
-        "extractor Purchased Sale - ID # " + to_string(sale_id)
-    );
-
-    sales.erase(sale_itr);
-}
-
-
-/**
-* Checks whether the provided asset ids, listing price and settlement symbol match the values of
-* the sale with the specified id and throws the transaction if this is not the case
-* 
-* Meant to be called within the same transaction as the purchase action for this sale in order to
-* validate that the sale with the specified id contains what the purchaser expects it to contain
-* 
-* @required_auth None
-*/
-ACTION extractor::assertsale(
-    uint64_t sale_id,
-    vector <uint64_t> asset_ids_to_assert,
-    asset listing_price_to_assert,
-    symbol settlement_symbol_to_assert
-) {
-    check(listing_price_to_assert.is_valid(), "Invalid type listing_price_to_assert");
-    check(settlement_symbol_to_assert.is_valid(), "Invalid type settlement_symbol_to_assert");
-
-    auto sale_itr = sales.require_find(sale_id,
-        "No sale with this sale_id exists");
-    
-    check(std::is_permutation(asset_ids_to_assert.begin(), asset_ids_to_assert.end(), sale_itr->asset_ids.begin()),
-        "The asset ids to assert differ from the asset ids of this sale");
-    
-    check(listing_price_to_assert == sale_itr->listing_price,
-        "The listing price to assert differs from the listing price of this sale");
-    
-    check(settlement_symbol_to_assert == sale_itr->settlement_symbol,
-        "The settlement symbol to assert differs from the settlement symbol of this sale");
-}
-
-
-/**
-* Create an auction listing
-* For the auction to become active, the seller needs to use the atomicassets transfer action to transfer the assets
-* to the extractor contract with the memo "auction"
-* 
-* duration is in seconds
-* 
-* @required_auth seller
-*/
-ACTION extractor::announceauct(
-    name seller,
-    vector <uint64_t> asset_ids,
-    asset starting_bid,
-    uint32_t duration,
-    name maker_marketplace
-) {
-    require_auth(seller);
-
-    check(starting_bid.is_valid(), "Invalid type starting_bid");
-
-    name assets_collection_name = get_collection_and_check_assets(seller, asset_ids);
-
-
-    checksum256 asset_ids_hash = hash_asset_ids(asset_ids);
-
-    auto auctions_by_hash = auctions.get_index <name("assetidshash")>();
-    auto auction_itr = auctions_by_hash.find(asset_ids_hash);
-
-    while (auction_itr != auctions_by_hash.end()) {
-        if (asset_ids_hash != auction_itr->asset_ids_hash()) {
-            break;
-        }
-
-        check(auction_itr->seller != seller,
-            "You have already announced an auction for these assets. You can cancel an auction using the cancelauct action.");
-
-        auction_itr++;
-    }
-
-
-    check(is_symbol_supported(starting_bid.symbol), "The specified starting bid token is not supported.");
-    check(starting_bid.amount > 0, "The starting bid must be greater than zero");
-
-    check(is_valid_marketplace(maker_marketplace), "The maker marketplace is not a valid marketplace");
-
-    double collection_fee = get_collection_fee(assets_collection_name);
-    check(collection_fee <= atomicassets::MAX_MARKET_FEE,
-        "The collection fee is too high. This should have been prevented by the atomicassets contract");
-
-    config_s current_config = config.get();
-    check(duration >= current_config.minimum_auction_duration,
-        "The specified duration is shorter than the minimum auction duration");
-    check(duration <= current_config.maximum_auction_duration,
-        "The specified duration is longer than the maximum auction duration");
-
-    uint64_t auction_id = consume_counter(name("auction"));
-
-    auctions.emplace(seller, [&](auto &_auction) {
-        _auction.auction_id = auction_id;
-        _auction.seller = seller;
-        _auction.asset_ids = asset_ids;
-        _auction.end_time = current_time_point().sec_since_epoch() + duration;
-        _auction.assets_transferred = false;
-        _auction.current_bid = starting_bid;
-        _auction.current_bidder = name("");
-        _auction.claimed_by_seller = false;
-        _auction.claimed_by_buyer = false;
-        _auction.maker_marketplace = maker_marketplace;
-        _auction.taker_marketplace = name("");
-        _auction.collection_name = assets_collection_name;
-        _auction.collection_fee = collection_fee;
-    });
-
-
-    action(
-        permission_level{get_self(), name("active")},
-        get_self(),
-        name("lognewauct"),
-        make_tuple(
-            auction_id,
-            seller,
-            asset_ids,
-            starting_bid,
-            duration,
-            current_time_point().sec_since_epoch() + duration,
-            maker_marketplace,
-            assets_collection_name,
-            collection_fee
-        )
-    ).send();
-}
-
-
-/**
-* Cancels an auction. If the auction is active, it must not have any bids yet.
-* Auctions with bids can't be cancelled.
-* 
-* If the auction is invalid (it is not active yet and the seller does not own at least one of the
-* assets listed in the auction) this action can be called without the autorization of the seller
-* 
-* @required_auth seller
-*/
-ACTION extractor::cancelauct(
-    uint64_t auction_id
-) {
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this auction_id exists");
-
-
-    bool is_auction_invalid = false;
-
-    if (!auction_itr->assets_transferred) {
-        atomicassets::assets_t seller_assets = atomicassets::get_assets(auction_itr->seller);
-        for (uint64_t asset_id : auction_itr->asset_ids) {
-            if (seller_assets.find(asset_id) == seller_assets.end()) {
-                is_auction_invalid = true;
-                break;
-            }
-        }
-    }
-
-    check(is_auction_invalid || has_auth(auction_itr->seller),
-        "The auction is not invalid, therefore the authorization of the seller is needed to cancel it");
-
-
-    if (auction_itr->assets_transferred) {
-        check(auction_itr->current_bidder == name(""),
-            "This auction already has a bid. Auctions with bids can't be cancelled");
-
-        internal_transfer_assets(
-            auction_itr->seller,
-            auction_itr->asset_ids,
-            "extractor Cancelled Auction - ID # " + to_string(auction_id)
-        );
-    }
-
-    auctions.erase(auction_itr);
-}
-
-
-/**
-* Places a bid on an auction
-* The bid is deducted from the buyer's balance
-* If a higher bid gets placed by someone else, the original bid will be refunded to the original buyer's balance
-* 
-* @required_auth bidder
-*/
-ACTION extractor::auctionbid(
-    name bidder,
-    uint64_t auction_id,
-    asset bid,
-    name taker_marketplace
-) {
-    require_auth(bidder);
-
-    check(bid.is_valid(), "Invalid type bid");
-
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this auction_id exists");
-
-    check(bidder != auction_itr->seller, "You can't bid on your own auction");
-
-    check(auction_itr->assets_transferred,
-        "The auction is not yet active. The seller first needs to transfer the asset to the extractor account");
-
-    check(current_time_point().sec_since_epoch() < auction_itr->end_time,
-        "The auction is already finished");
-
-    check(bid.symbol == auction_itr->current_bid.symbol,
-        "The bid uses a different symbol than the current auction bid");
-
-    config_s current_config = config.get();
-    if (auction_itr->current_bidder == name("")) {
-        check(bid.amount >= auction_itr->current_bid.amount,
-            "The bid must be at least as high as the minimum bid");
-    } else {
-        check((double) bid.amount >=
-              (double) auction_itr->current_bid.amount * (1.0 + current_config.minimum_bid_increase),
-            "The relative increase is less than the minimum bid increase specified in the config");
-    }
-
-
-    if (auction_itr->current_bidder != name("")) {
-        internal_add_balance(
-            auction_itr->current_bidder,
-            auction_itr->current_bid
-        );
-    }
-
-    internal_decrease_balance(
-        bidder,
-        bid
-    );
-
-    check(is_valid_marketplace(taker_marketplace), "The taker marketplace is not a valid marketplace");
-
-    auctions.modify(auction_itr, same_payer, [&](auto &_auction) {
-        _auction.current_bid = bid;
-        _auction.current_bidder = bidder;
-        _auction.taker_marketplace = taker_marketplace;
-        _auction.end_time = std::max(
-            _auction.end_time,
-            current_time_point().sec_since_epoch() + current_config.auction_reset_duration
-        );
-    });
-}
-
-
-/**
-* Claims the asset for the highest bidder of an auction
-* 
-* @required_auth The highest bidder of the auction
-*/
-ACTION extractor::auctclaimbuy(
-    uint64_t auction_id
-) {
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this auction_id exists");
-
-    check(auction_itr->assets_transferred, "The auction is not active");
-
-    check(auction_itr->current_bidder != name(""),
-        "The auction does not have any bids");
-
-    require_auth(auction_itr->current_bidder);
-
-    check(auction_itr->end_time < current_time_point().sec_since_epoch(),
-        "The auction is not finished yet");
-    
-    check(!auction_itr->claimed_by_buyer,
-        "The auction has already been claimed by the buyer");
-
-    internal_transfer_assets(
-        auction_itr->current_bidder,
-        auction_itr->asset_ids,
-        "extractor Won Auction - ID # " + to_string(auction_id)
-    );
-
-    if (auction_itr->claimed_by_seller) {
-        auctions.erase(auction_itr);
-    } else {
-        auctions.modify(auction_itr, same_payer, [&](auto &_auction) {
-            _auction.claimed_by_buyer = true;
-        });
-    }
-}
-
-
-/**
-* Claims the highest bid of an auction for the seller and also gives a cut to the marketplaces and the collection
-* 
-* If the auction has no bids, use the cancelauct action instead
-* 
-* @required_auth The auction's seller
-*/
-ACTION extractor::auctclaimsel(
-    uint64_t auction_id
-) {
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this auction_id exists");
-
-    require_auth(auction_itr->seller);
-
-    check(auction_itr->assets_transferred, "The auction is not active");
-
-    check(auction_itr->end_time < current_time_point().sec_since_epoch(),
-        "The auction is not finished yet");
-
-    check(auction_itr->current_bidder != name(""),
-        "The auction does not have any bids");
-    
-    check(!auction_itr->claimed_by_seller,
-        "The auction has already been claimed by the seller");
-
-    internal_payout_sale(
-        auction_itr->current_bid,
-        auction_itr->seller,
-        auction_itr->maker_marketplace,
-        auction_itr->taker_marketplace,
-        get_collection_author(auction_itr->collection_name),
-        auction_itr->collection_fee,
-        name("auction"),
-        auction_id,
-        "extractor Auction Payout - ID #" + to_string(auction_id)
-    );
-
-    if (auction_itr->claimed_by_buyer) {
-        auctions.erase(auction_itr);
-    } else {
-        auctions.modify(auction_itr, same_payer, [&](auto &_auction) {
-            _auction.claimed_by_seller = true;
-        });
-    }
-}
-
-
-/**
-* Checks whether the provided asset ids match those of the auction with the specified id
-* and throws the transaction if this is not the case
-* 
-* Meant to be called within the same transaction as a bid action for this auction in order to
-* validate that the auction with the specified id contains what the bidder expects it to contain
-* 
-* @required_auth None
-*/
-ACTION extractor::assertauct(
-    uint64_t auction_id,
-    vector <uint64_t> asset_ids_to_assert
-) {
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this auction_id exists");
-    
-    check(std::is_permutation(asset_ids_to_assert.begin(), asset_ids_to_assert.end(), auction_itr->asset_ids.begin()),
-        "The asset ids to assert differ from the asset ids of this auction");
-}
-
-
-/**
-* Creates a buyoffer
-* The specified price is deducted from the buyer's balance
-* The recipient then has the option to trade the specified assets for the offered price (excluding fees)
-* 
-* @required_auth buyer
-*/
-ACTION extractor::createbuyo(
-    name buyer,
-    name recipient,
-    asset price,
-    vector <uint64_t> asset_ids,
-    string memo,
-    name maker_marketplace
-) {
-    require_auth(buyer);
-
-    check(price.is_valid(), "Invalid type price");
-
-    check(buyer != recipient, "buyer and recipient can't be the same account");
-
-    name assets_collection_name = get_collection_and_check_assets(recipient, asset_ids);
-
-    // Not needed technically, as invalid symbols would simply fail when attempting to decrease
-    // the balance. Only meant to give more meaningful error messages.
-    check(is_symbol_supported(price.symbol), "The symbol of the specified price is not supported");
-
-    check(price.amount > 0, "The price must be greater than zero");
-    internal_decrease_balance(buyer, price);
-
-    check(memo.length() <= 256, "A buyoffer memo can only be 256 characters max");
-
-
-    check(is_valid_marketplace(maker_marketplace), "The maker marketplace is not a valid marketplace");
-
-    uint64_t buyoffer_id = consume_counter(name("buyoffer"));
-
-    buyoffers.emplace(buyer, [&](auto &_buyoffer) {
-        _buyoffer.buyoffer_id = buyoffer_id;
-        _buyoffer.buyer = buyer;
-        _buyoffer.recipient = recipient;
-        _buyoffer.price = price;
-        _buyoffer.asset_ids = asset_ids;
-        _buyoffer.memo = memo;
-        _buyoffer.maker_marketplace = maker_marketplace;
-        _buyoffer.collection_name = assets_collection_name;
-        _buyoffer.collection_fee = get_collection_fee(assets_collection_name);
-    });
-
-
-    action(
-        permission_level{get_self(), name("active")},
-        get_self(),
-        name("lognewbuyo"),
-        make_tuple(
-            buyoffer_id,
-            buyer,
-            recipient,
-            price,
-            asset_ids,
-            memo,
-            maker_marketplace,
-            assets_collection_name,
-            get_collection_fee(assets_collection_name)
-        )
-    ).send();
-}
-
-
-/**
-* Cancels (erases) a buyoffer
-* The price that has previously been deducted when creating the buyoffer is added
-* back to the buyer's balance
-* 
-* @required_auth The buyer of the buyoffer
-*/
-ACTION extractor::cancelbuyo(
-    uint64_t buyoffer_id
-) {
-    auto buyoffer_itr = buyoffers.require_find(buyoffer_id,
-        "No buyoffer with this id exists");
-    
-    require_auth(buyoffer_itr->buyer);
-
-    internal_add_balance(buyoffer_itr->buyer, buyoffer_itr->price);
-
-    buyoffers.erase(buyoffer_itr);
-}
-
-
-/**
-* Accepts a buyoffer
-* Calling this action expects that the recipient of the buyoffer had created an AtomicAssets
-* trade offer, which offers the assets of the buyoffer to the extractor contract, while
-* asking for nothing in return and using the memo "buyoffer"
-* 
-* The AtomicAssets offer with the highest offer_id is looked at, which means that the recipient
-* should create the AtomicAssets offer and then call this action within the same transaction to
-* make sure that they are executed directly after one antoher
-* 
-* The extractor will then accept this trade offer and transfer the assets to the sender of
-* the buyoffer, and pay out the offered price to the recipient
-* 
-* The price is subject to the same fees as sales or auctions
-* 
-* @required_auth The recipient of the buyoffer
-*/
-ACTION extractor::acceptbuyo(
-    uint64_t buyoffer_id,
-    vector <uint64_t> expected_asset_ids,
-    asset expected_price,
-    name taker_marketplace
-) {
-    check(expected_price.is_valid(), "Invalid type expected_price");
-
-    auto buyoffer_itr = buyoffers.require_find(buyoffer_id,
-        "No buyoffer with this id exists");
-    
-    require_auth(buyoffer_itr->recipient);
-
-    check(std::is_permutation(
-            buyoffer_itr->asset_ids.begin(),
-            buyoffer_itr->asset_ids.end(),
-            expected_asset_ids.begin()
-        ),
-        "The asset ids of this buyoffer differ from the expected asset ids");
-    check(buyoffer_itr->price == expected_price,
-        "The price of this buyoffer differ from the expected price");
-    
-    // This could theoretically fail if there is not a single AtomicAssets offer exists
-    // Because it is assumed that this will rarely if ever be the case, no explicit check is added for that
-    auto last_offer_itr = --atomicassets::offers.end();
-
-    check(last_offer_itr->sender == buyoffer_itr->recipient && last_offer_itr->recipient == get_self(),
-        "The last created AtomicAssets offer must be from the buyoffer recipient to the extractor contract");
-    
-    check(std::is_permutation(
-            last_offer_itr->sender_asset_ids.begin(),
-            last_offer_itr->sender_asset_ids.end(),
-            buyoffer_itr->asset_ids.begin()
-        ),
-        "The last created AtomicAssets offer must contain the assets of the buyoffer");
-    check(last_offer_itr->recipient_asset_ids.size() == 0,
-        "The last created AtomicAssets offer must not ask for any assets in return");
-    
-    check(last_offer_itr->memo == "buyoffer",
-        "The last created AtomicAssets offer must have the memo \"buyoffer\"");
-
-
-    // It is not checked whether the AtomicAssets offer is valid, because this will be checked in the
-    // acceptoffer action, and if the offer is invalid, the transaction will throw
-    action(
-        permission_level{get_self(), name("active")},
-        atomicassets::ATOMICASSETS_ACCOUNT,
-        name("acceptoffer"),
-        make_tuple(
-            last_offer_itr->offer_id
-        )
-    ).send();
-
-    internal_transfer_assets(
-        buyoffer_itr->buyer,
-        buyoffer_itr->asset_ids,
-        "extractor Accepted Buyoffer - ID # " + to_string(buyoffer_id)
-    );
-
-
-    check(is_valid_marketplace(taker_marketplace), "The taker marketplace is not a valid marketplace");
-    
-    internal_payout_sale(
-        buyoffer_itr->price,
-        buyoffer_itr->recipient,
-        buyoffer_itr->maker_marketplace,
-        taker_marketplace,
-        get_collection_author(buyoffer_itr->collection_name),
-        buyoffer_itr->collection_fee,
-        name("buyoffer"),
-        buyoffer_id,
-        "extractor Buyoffer Payout - ID #" + to_string(buyoffer_id)
-    );
-
-
-    buyoffers.erase(buyoffer_itr);
-}
-
-
-/**
-* Declines a buyoffer
-* 
-* @required_auth The recipient of the buyoffer
-*/
-ACTION extractor::declinebuyo(
-    uint64_t buyoffer_id,
-    string decline_memo
-) {
-    auto buyoffer_itr = buyoffers.require_find(buyoffer_id,
-        "No buyoffer with this id exists");
-    
-    require_auth(buyoffer_itr->recipient);
-
-    check(decline_memo.length() <= 256, "A decline memo can only be 256 characters max");
-
-    internal_add_balance(buyoffer_itr->buyer, buyoffer_itr->price);
-
-    buyoffers.erase(buyoffer_itr);
-}
-
-
-/**
-* Pays the RAM cost for an already existing sale
-*/
-ACTION extractor::paysaleram(
-    name payer,
-    uint64_t sale_id
-) {
-    require_auth(payer);
-
-    auto sale_itr = sales.require_find(sale_id,
-        "No sale with this id exists");
-    
-    sales_s sale_copy = *sale_itr;
-
-    sales.erase(sale_itr);
-
-    sales.emplace(payer, [&](auto &_sale) {
-        _sale = sale_copy;
-    });
-}
-
-
-/**
-* Pays the RAM cost for an already existing auction
-*/
-ACTION extractor::payauctram(
-    name payer,
-    uint64_t auction_id
-) {
-    require_auth(payer);
-
-    auto auction_itr = auctions.require_find(auction_id,
-        "No auction with this id exists");
-    
-    auctions_s auction_copy = *auction_itr;
-
-    auctions.erase(auction_itr);
-
-    auctions.emplace(payer, [&](auto &_auction) {
-        _auction = auction_copy;
-    });
-}
-
-
-/**
-* Pays the RAM cost for an already existing buyoffer
-*/
-ACTION extractor::paybuyoram(
-    name payer,
-    uint64_t buyoffer_id
-) {
-    require_auth(payer);
-
-    auto buyoffer_itr = buyoffers.require_find(buyoffer_id,
-        "No buyoffer with this id exists");
-    
-    buyoffers_s buyoffer_copy = *buyoffer_itr;
-
-    buyoffers.erase(buyoffer_itr);
-
-    buyoffers.emplace(payer, [&](auto &_buyoffer) {
-        _buyoffer = buyoffer_copy;
-    });
-}
 
 
 /**
@@ -1002,125 +267,10 @@ void extractor::receive_token_transfer(name from, name to, asset quantity, strin
 
     check(is_token_supported(get_first_receiver(), quantity.symbol), "The transferred token is not supported");
 
-    if (memo == "deposit") {
+    if (memo == "claim") {
         internal_add_balance(from, quantity);
     } else {
         check(false, "invalid memo");
-    }
-}
-
-
-/**
-* This function is called when a "transfer" action receipt from the atomicassets contract is sent to the extractor
-* contract. It handles receiving assets for auctions.
-*/
-void extractor::receive_asset_transfer(
-    name from,
-    name to,
-    vector <uint64_t> asset_ids,
-    string memo
-) {
-    if (to != get_self()) {
-        return;
-    }
-
-    if (memo == "auction") {
-        checksum256 asset_ids_hash = hash_asset_ids(asset_ids);
-        auto auctions_by_hash = auctions.get_index <name("assetidshash")>();
-        auto auction_itr = auctions_by_hash.find(asset_ids_hash);
-
-        while (true) {
-            check(auction_itr != auctions_by_hash.end(),
-                "No announced, non-finished auction by the sender for these assets exists");
-
-            check(asset_ids_hash == auction_itr->asset_ids_hash(),
-                "No announced, non-finished auction by the sender for these assets exists");
-
-            if (auction_itr->seller == from && current_time_point().sec_since_epoch() < auction_itr->end_time) {
-                break;
-            }
-
-            auction_itr++;
-        }
-
-        auctions_by_hash.modify(auction_itr, same_payer, [&](auto &_auction) {
-            _auction.assets_transferred = true;
-        });
-
-        action(
-            permission_level{get_self(), name("active")},
-            get_self(),
-            name("logauctstart"),
-            make_tuple(
-                auction_itr->auction_id
-            )
-        ).send();
-
-    } else {
-        check(false, "Invalid memo");
-    }
-}
-
-
-/**
-* This function is called when a "lognewoffer" action receipt from the atomicassets contract is sent to the 
-* extractor contract. It handles receiving offers for sales.
-*/
-void extractor::receive_asset_offer(
-    uint64_t offer_id,
-    name sender,
-    name recipient,
-    vector <uint64_t> sender_asset_ids,
-    vector <uint64_t> recipient_asset_ids,
-    string memo
-) {
-    if (recipient != get_self()) {
-        return;
-    }
-
-    if (memo == "sale") {
-        check(recipient_asset_ids.size() == 0, "You must not ask for any assets in return in a sale offer");
-
-
-        checksum256 asset_ids_hash = hash_asset_ids(sender_asset_ids);
-
-        auto sales_by_hash = sales.get_index <name("assetidshash")>();
-        auto sale_itr = sales_by_hash.find(asset_ids_hash);
-
-        while (true) {
-            check(sale_itr != sales_by_hash.end(),
-                "No sale was announced by this sender for the offered assets");
-
-            check(asset_ids_hash == sale_itr->asset_ids_hash(),
-                "No sale was announced by this sender for the offered assets");
-
-            if (sale_itr->seller == sender) {
-                break;
-            }
-
-            sale_itr++;
-        }
-
-        check(sale_itr->offer_id == -1, "An offer for this sale has already been created");
-
-        sales_by_hash.modify(sale_itr, same_payer, [&](auto &_sale) {
-            _sale.offer_id = offer_id;
-        });
-
-        action(
-            permission_level{get_self(), name("active")},
-            get_self(),
-            name("logsalestart"),
-            make_tuple(
-                sale_itr->sale_id,
-                offer_id
-            )
-        ).send();
-
-    } else if (memo == "buyoffer") {
-        // Offers for buyoffers are handled in the acceptbuyo action and require no immediate action
-    } else {
-        check(false, "Invalid memo");
     }
 }
 
@@ -1136,50 +286,15 @@ ACTION extractor::lognewstake(
     require_recipient(seller);
 }
 
-ACTION extractor::lognewauct(
-    uint64_t auction_id,
-    name seller,
+ACTION extractor::lognewclaim(
+    name owner,
     vector <uint64_t> asset_ids,
-    asset starting_bid,
-    uint32_t duration,
-    uint32_t end_time,
-    name maker_marketplace,
-    name collection_name,
-    double collection_fee
+    double amount
 ) {
     require_auth(get_self());
 
-    require_recipient(seller);
+    require_recipient(owner);
 }
-
-ACTION extractor::lognewbuyo(
-    uint64_t buyoffer_id,
-    name buyer,
-    name recipient,
-    asset price,
-    vector <uint64_t> asset_ids,
-    string memo,
-    name maker_marketplace,
-    name collection_name,
-    double collection_fee
-) {
-    require_auth(get_self());
-}
-
-ACTION extractor::logsalestart(
-    uint64_t sale_id,
-    uint64_t offer_id
-) {
-    require_auth(get_self());
-}
-
-ACTION extractor::logauctstart(
-    uint64_t auction_id
-) {
-    require_auth(get_self());
-}
-
-
 
 
 /**
@@ -1189,17 +304,6 @@ name extractor::get_collection_author(name collection_name) {
     auto collection_itr = atomicassets::collections.find(collection_name.value);
     return collection_itr->author;
 }
-
-
-/**
-* Gets the fee defined by a collection in the atomicassets contract
-*/
-double extractor::get_collection_fee(name collection_name) {
-    auto collection_itr = atomicassets::collections.find(collection_name.value);
-    return collection_itr->market_fee;
-}
-
-
 
 
 
@@ -1220,27 +324,6 @@ name extractor::require_get_supported_token_contract(
 
     check(false, "The specified token symbol is not supported");
     return name(""); //To silence the compiler warning
-}
-
-
-/**
-* Gets the symbol pair with the provided listing and settlement symbol combination
-* Throws if there is no symbol pair with the provided listing and settlement symbol combination
-*/
-extractor::SYMBOLPAIR extractor::require_get_symbol_pair(
-    symbol listing_symbol,
-    symbol settlement_symbol
-) {
-    config_s current_config = config.get();
-
-    for (SYMBOLPAIR symbol_pair : current_config.supported_symbol_pairs) {
-        if (symbol_pair.listing_symbol == listing_symbol && symbol_pair.settlement_symbol == settlement_symbol) {
-            return symbol_pair;
-        }
-    }
-
-    check(false, "No symbol pair with the specified listing - settlement symbol combination exists");
-    return {}; //To silence the compiler warning
 }
 
 
@@ -1280,33 +363,6 @@ bool extractor::is_symbol_supported(
 
 
 /**
-* Internal function to check whether a symbol pair with the specified listing and settlement symbols exists
-*/
-bool extractor::is_symbol_pair_supported(
-    symbol listing_symbol,
-    symbol settlement_symbol
-) {
-    config_s current_config = config.get();
-
-    for (SYMBOLPAIR symbol_pair : current_config.supported_symbol_pairs) {
-        if (symbol_pair.listing_symbol == listing_symbol && symbol_pair.settlement_symbol == settlement_symbol) {
-            return true;
-        }
-    }
-    return false;
-}
-
-
-/**
-* Checks if the provided marketplace is a valid marketplace
-* A marketplace is valid if is in the marketplaces table
-*/
-bool extractor::is_valid_marketplace(name marketplace) {
-    return (marketplaces.find(marketplace.value) != marketplaces.end());
-}
-
-
-/**
 * Decreases the withdrawers balance by the specified quantity and transfers the tokens to them
 * Throws if the withdrawer does not have a sufficient balance
 */
@@ -1334,101 +390,6 @@ void extractor::internal_withdraw_tokens(
         )
     ).send();
 }
-
-
-/**
-* Gives the seller, the marketplaces and the collection their share of the sale price
-*/
-void extractor::internal_payout_sale(
-    asset quantity,
-    name seller,
-    name maker_marketplace,
-    name taker_marketplace,
-    name collection_author,
-    double collection_fee,
-    name relevant_counter_name,
-    uint64_t relevant_counter_id,
-    string seller_payout_message
-) {
-    config_s current_config = config.get();
-
-    struct FEE_PAYOUT {
-        name recipient;
-        uint64_t amount;
-    };
-
-    vector <FEE_PAYOUT> fee_payouts = {};
-
-    // Maker market fee
-    auto maker_itr = marketplaces.find(maker_marketplace.value);
-    fee_payouts.push_back({
-        .recipient = maker_itr->creator,
-        .amount = (uint64_t)(current_config.maker_market_fee * (double) quantity.amount)
-    });
-
-    // Taker market fee
-    auto taker_itr = marketplaces.find(taker_marketplace.value);
-    fee_payouts.push_back({
-        .recipient = taker_itr->creator,
-        .amount = (uint64_t)(current_config.taker_market_fee * (double) quantity.amount)
-    });
-
-    // Collection fee
-    fee_payouts.push_back({
-        .recipient = collection_author,
-        .amount = (uint64_t)(collection_fee * (double) quantity.amount)
-    });
-
-    // Bonus fees
-    for (auto bonusfee_itr = bonusfees.begin(); bonusfee_itr != bonusfees.end(); bonusfee_itr++) {
-        auto counter_range_itr = std::find_if(
-            bonusfee_itr->counter_ranges.begin(),
-            bonusfee_itr->counter_ranges.end(),
-            [&](auto &counter_range) {
-                return counter_range.counter_name == relevant_counter_name;
-            }
-        );
-
-        // If no counter range entry exists, it means that the bonus fee does not apply to
-        // this type of payout
-        if (counter_range_itr == bonusfee_itr->counter_ranges.end()) {
-            continue;
-        }
-        if (relevant_counter_id < counter_range_itr->start_id || relevant_counter_id >= counter_range_itr->end_id) {
-            continue;    
-        }
-
-        fee_payouts.push_back({
-            .recipient = bonusfee_itr->fee_recipient,
-            .amount = (uint64_t)(bonusfee_itr->fee * (double) quantity.amount)
-        });
-    }
-
-
-    asset seller_cut_quantity = quantity;
-
-    // Payout all fees
-    for (const FEE_PAYOUT &fee_payout : fee_payouts) {
-        asset fee_payout_quantity = asset(fee_payout.amount, quantity.symbol);
-
-        internal_add_balance(
-            fee_payout.recipient,
-            asset(fee_payout.amount, quantity.symbol)
-        );
-
-        seller_cut_quantity -= fee_payout_quantity;
-    }
-
-    // Payout seller
-    internal_add_balance(
-        seller,
-        seller_cut_quantity
-    );
-
-    // Directly transfer tokens to the seller
-    internal_withdraw_tokens(seller, seller_cut_quantity, seller_payout_message);
-}
-
 
 /**
 * Internal function used to add a quantity of a token to an account's balance
